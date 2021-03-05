@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/iegomez/mosquitto-go-auth/hashing"
 	"github.com/jmoiron/sqlx"
@@ -30,7 +31,11 @@ type Postgres struct {
 	SSLRootCert    string
 	hasher         hashing.HashComparer
 
-	connectTries int
+	connectTries    int
+	maxOpenConns    int
+	maxIdleConns    int
+	connMaxLifetime int // sec
+	connMaxIdleTime int // sec
 }
 
 func NewPostgres(authOpts map[string]string, logLevel log.Level, hasher hashing.HashComparer) (Postgres, error) {
@@ -153,6 +158,51 @@ func NewPostgres(authOpts map[string]string, logLevel log.Level, hasher hashing.
 
 	if err != nil {
 		return postgres, errors.Errorf("PG backend error: couldn't open db: %s", err)
+	}
+
+	// configure connection pool
+	if maxIdleConnsStr, ok := authOpts["pg_maxidleconns"]; ok {
+		maxIdleConns, err := strconv.Atoi(maxIdleConnsStr)
+
+		if err != nil {
+			log.Warnf("invalid postgres max idle connections options: %s", err)
+		} else {
+			postgres.maxIdleConns = maxIdleConns
+			postgres.DB.DB.SetMaxIdleConns(maxIdleConns)
+		}
+	}
+
+	if maxOpenConnsStr, ok := authOpts["pg_maxopenconns"]; ok {
+		maxOpenConns, err := strconv.Atoi(maxOpenConnsStr)
+
+		if err != nil {
+			log.Warnf("invalid postgres max open connections options: %s", err)
+		} else {
+			postgres.maxOpenConns = maxOpenConns
+			postgres.DB.DB.SetMaxOpenConns(maxOpenConns)
+		}
+	}
+
+	if connMaxLifetimeStr, ok := authOpts["pg_connmaxlifetime"]; ok {
+		connMaxLifetime, err := strconv.Atoi(connMaxLifetimeStr)
+
+		if err != nil {
+			log.Warnf("invalid postgres connection max lifetime options: %s", err)
+		} else {
+			postgres.connMaxLifetime = connMaxLifetime
+			postgres.DB.DB.SetConnMaxLifetime(time.Duration(connMaxLifetime) * time.Second)
+		}
+	}
+
+	if connMaxIdleTimeStr, ok := authOpts["pg_connmaxidletime"]; ok {
+		connMaxIdleTime, err := strconv.Atoi(connMaxIdleTimeStr)
+
+		if err != nil {
+			log.Warnf("invalid postgres connection max idle time options: %s", err)
+		} else {
+			postgres.connMaxIdleTime = connMaxIdleTime
+			postgres.DB.DB.SetConnMaxIdleTime(time.Duration(connMaxIdleTime) * time.Second)
+		}
 	}
 
 	return postgres, nil
